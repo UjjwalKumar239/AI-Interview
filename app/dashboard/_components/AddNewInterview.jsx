@@ -1,7 +1,8 @@
 "use client";
+
 import React, { useState } from "react";
 import { GoogleGenAI } from "@google/genai";
-import {db} from "@/utils/db"
+import { useUser } from "@clerk/nextjs";
 
 const AddNewInterview = () => {
   const [open, setOpen] = useState(false);
@@ -11,6 +12,14 @@ const AddNewInterview = () => {
   const [loading, setLoading] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
+
+  // Clerk session
+  const { isSignedIn, user, isLoaded } = useUser();
+
+  const userEmail = user?.primaryEmailAddress?.emailAddress || "anonymous";
+  console.log("✅ Clerk Loaded:", isLoaded);
+  console.log("🔐 Signed In:", isSignedIn);
+  console.log("📧 User Email:", userEmail);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -34,10 +43,8 @@ Do not include any explanation or text outside the JSON.`;
         apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
       });
 
-      const model = "models/gemini-1.5-flash";
-
       const result = await ai.models.generateContentStream({
-        model,
+        model: "models/gemini-1.5-flash",
         config: {
           responseMimeType: "text/plain",
         },
@@ -55,24 +62,35 @@ Do not include any explanation or text outside the JSON.`;
         if (part) fullText += part;
       }
 
-       const cleanedText = fullText
+      const cleanedText = fullText
         .replace("```json", "")
         .replace("```", "")
         .trim();
 
-      try {
-        const parsedQuestions = JSON.parse(cleanedText);
-        setQuestions(parsedQuestions);
-      } catch (err) {
-        console.error("Failed to parse JSON:", err);
-        setErrorMessage("Could not parse the response. Try again.");
+      const parsedQuestions = JSON.parse(cleanedText);
+      setQuestions(parsedQuestions);
+
+      // Send to DB
+      const response = await fetch("/api/interview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          position: jobPosition,
+          description: jobDesc,
+          experience: jobExperience,
+          questions: parsedQuestions,
+          clientEmail: userEmail, // fallback in case backend auth() fails
+        }),
+      });
+
+      const resultData = await response.json();
+      if (!resultData.success) {
+        setErrorMessage("DB save failed: " + resultData.error);
       }
     } catch (error) {
-      console.error("Error generating questions:", error);
-      setErrorMessage("Something went wrong while generating questions.");
+      console.error("❌ Error:", error);
+      setErrorMessage("Something went wrong. Try again.");
     }
-
-    const res = await db
 
     setLoading(false);
   };
