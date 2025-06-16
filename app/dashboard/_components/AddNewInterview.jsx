@@ -1,8 +1,81 @@
 "use client";
 import React, { useState } from "react";
+import { GoogleGenAI } from "@google/genai";
+import {db} from "@/utils/db"
 
 const AddNewInterview = () => {
   const [open, setOpen] = useState(false);
+  const [jobPosition, setJobPosition] = useState("");
+  const [jobDesc, setJobDesc] = useState("");
+  const [jobExperience, setJobExperience] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setQuestions([]);
+    setErrorMessage("");
+
+    const inputPrompt = `Generate ${
+      process.env.NEXT_PUBLIC_INTERVIEW_QUESTION_COUNT || 5
+    } mock interview questions for the position of "${jobPosition}" based on the job description and experience below.
+
+Job Description: ${jobDesc}  
+Candidate experience: ${jobExperience} years
+
+Return only a JSON array of questions like this:  
+["Question 1...", "Question 2...", "Question 3...", ...]  
+Do not include any explanation or text outside the JSON.`;
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
+      });
+
+      const model = "models/gemini-1.5-flash";
+
+      const result = await ai.models.generateContentStream({
+        model,
+        config: {
+          responseMimeType: "text/plain",
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: inputPrompt }],
+          },
+        ],
+      });
+
+      let fullText = "";
+      for await (const chunk of result) {
+        const part = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (part) fullText += part;
+      }
+
+       const cleanedText = fullText
+        .replace("```json", "")
+        .replace("```", "")
+        .trim();
+
+      try {
+        const parsedQuestions = JSON.parse(cleanedText);
+        setQuestions(parsedQuestions);
+      } catch (err) {
+        console.error("Failed to parse JSON:", err);
+        setErrorMessage("Could not parse the response. Try again.");
+      }
+    } catch (error) {
+      console.error("Error generating questions:", error);
+      setErrorMessage("Something went wrong while generating questions.");
+    }
+
+    const res = await db
+
+    setLoading(false);
+  };
 
   return (
     <div>
@@ -15,7 +88,7 @@ const AddNewInterview = () => {
 
       {open && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md relative animate-fadeIn">
+          <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md relative animate-fadeIn overflow-y-auto max-h-[90vh]">
             <button
               onClick={() => setOpen(false)}
               className="absolute top-2 right-3 text-xl font-bold text-gray-500 hover:text-red-500"
@@ -27,22 +100,33 @@ const AddNewInterview = () => {
               Create Interview
             </h2>
 
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={onSubmit}>
               <input
                 type="text"
                 placeholder="Job Position"
                 className="w-full border px-4 py-2 rounded"
+                onChange={(e) => setJobPosition(e.target.value)}
+                required
               />
               <textarea
                 placeholder="Job Description"
                 rows={3}
                 className="w-full border px-4 py-2 rounded"
+                onChange={(e) => setJobDesc(e.target.value)}
+                required
               ></textarea>
               <input
                 type="number"
                 placeholder="Years of Experience"
                 className="w-full border px-4 py-2 rounded"
+                onChange={(e) => setJobExperience(e.target.value)}
+                required
               />
+
+              {errorMessage && (
+                <p className="text-red-600 text-sm">{errorMessage}</p>
+              )}
+
               <div className="flex justify-end space-x-2">
                 <button
                   type="button"
@@ -53,12 +137,28 @@ const AddNewInterview = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  disabled={loading}
+                  className={`px-4 py-2 rounded text-white ${
+                    loading ? "bg-gray-500" : "bg-blue-600 hover:bg-blue-700"
+                  }`}
                 >
-                  Generate
+                  {loading ? "Generating..." : "Generate"}
                 </button>
               </div>
             </form>
+
+            {questions.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold mb-2">
+                  Generated Questions:
+                </h3>
+                <ul className="list-disc pl-5 space-y-1">
+                  {questions.map((q, i) => (
+                    <li key={i}>{q}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}
