@@ -9,20 +9,7 @@ export async function POST(request) {
     const { userId } = auth();
     console.log("Authenticated userId:", userId);
 
-    const body = await request.json();
-    console.log("Incoming request body:", body);
-
-    const { position, description, experience, questions, clientEmail } = body;
-
-    if (!position || !description || !experience || !questions?.length) {
-      console.error("❌ Missing required fields.");
-      return NextResponse.json(
-        { error: "Missing required fields." },
-        { status: 400 }
-      );
-    }
-
-    let email = clientEmail || "anonymous";
+    let email = "anonymous";
 
     if (userId) {
       try {
@@ -39,11 +26,23 @@ export async function POST(request) {
         }
       } catch (e) {
         console.warn("⚠️ Failed to fetch user from Clerk:", e.message);
-        // fallback to clientEmail if provided
       }
     }
 
     console.log("Final email to be saved:", email);
+
+    const body = await request.json();
+    console.log("Incoming request body:", body);
+
+    const { position, description, experience, questions } = body;
+
+    if (!position || !description || !experience || !questions?.length) {
+      console.error("❌ Missing required fields.");
+      return NextResponse.json(
+        { error: "Missing required fields." },
+        { status: 400 }
+      );
+    }
 
     const newRecord = {
       jobPosition: position,
@@ -57,10 +56,7 @@ export async function POST(request) {
 
     console.log("Prepared record for insertion:", newRecord);
 
-    const inserted = await db
-      .insert(MockInterview)
-      .values(newRecord)
-      .returning();
+    const inserted = await db.insert(MockInterview).values(newRecord).returning();
 
     console.log("✅ Inserted Record:", inserted[0]);
 

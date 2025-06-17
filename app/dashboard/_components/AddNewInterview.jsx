@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { GoogleGenAI } from "@google/genai";
 import { useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 const AddNewInterview = () => {
   const [open, setOpen] = useState(false);
@@ -12,14 +13,10 @@ const AddNewInterview = () => {
   const [loading, setLoading] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const router = useRouter();
 
-  // Clerk session
   const { isSignedIn, user, isLoaded } = useUser();
-
   const userEmail = user?.primaryEmailAddress?.emailAddress || "anonymous";
-  console.log("✅ Clerk Loaded:", isLoaded);
-  console.log("🔐 Signed In:", isSignedIn);
-  console.log("📧 User Email:", userEmail);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -29,14 +26,18 @@ const AddNewInterview = () => {
 
     const inputPrompt = `Generate ${
       process.env.NEXT_PUBLIC_INTERVIEW_QUESTION_COUNT || 5
-    } mock interview questions for the position of "${jobPosition}" based on the job description and experience below.
-
-Job Description: ${jobDesc}  
-Candidate experience: ${jobExperience} years
-
-Return only a JSON array of questions like this:  
-["Question 1...", "Question 2...", "Question 3...", ...]  
-Do not include any explanation or text outside the JSON.`;
+    } mock interview questions and answers for the position of "${jobPosition}" based on the job description and experience below.
+    
+    Job Description: ${jobDesc}  
+    Candidate experience: ${jobExperience} years
+    
+    Return only a JSON array of objects like this:  
+    [
+      { "question": "Question 1?", "answer": "Answer 1" },
+      { "question": "Question 2?", "answer": "Answer 2" }
+    ]  
+    
+    Do not include any text or explanation outside the JSON.`;
 
     try {
       const ai = new GoogleGenAI({
@@ -70,7 +71,7 @@ Do not include any explanation or text outside the JSON.`;
       const parsedQuestions = JSON.parse(cleanedText);
       setQuestions(parsedQuestions);
 
-      // Send to DB
+      // Save to database
       const response = await fetch("/api/interview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,17 +80,29 @@ Do not include any explanation or text outside the JSON.`;
           description: jobDesc,
           experience: jobExperience,
           questions: parsedQuestions,
-          clientEmail: userEmail, // fallback in case backend auth() fails
+          clientEmail: userEmail,
         }),
       });
 
       const resultData = await response.json();
       if (!resultData.success) {
         setErrorMessage("DB save failed: " + resultData.error);
+        setLoading(false);
+        return;
       }
+
+      const mockId = resultData.data?.mockId;
+      if (!mockId) {
+        setErrorMessage("mockId not returned from server");
+        setLoading(false);
+        return;
+      }
+
+      router.push(`/dashboard/interview/${mockId}`);
     } catch (error) {
       console.error("❌ Error:", error);
       setErrorMessage("Something went wrong. Try again.");
+      setLoading(false);
     }
 
     setLoading(false);
